@@ -1,4 +1,5 @@
 import { Elysia, t } from "elysia";
+import { cors } from "@elysiajs/cors";
 import { and, eq, gt, lt, getTableColumns } from "drizzle-orm";
 import { db, posts, publicUser } from "./db";
 import { records, sessions, users } from "./schema";
@@ -46,13 +47,29 @@ function validImage(value: string) {
   return false;
 }
 
+const appOrigin = process.env.APP_ORIGIN ?? "http://localhost:5173";
+const secureCookie = process.env.COOKIE_SECURE === "true";
+const sameSite = process.env.COOKIE_SAME_SITE === "none" ? "none" : "lax";
+if (sameSite === "none" && !secureCookie) {
+  throw new Error("COOKIE_SAME_SITE=none requires COOKIE_SECURE=true.");
+}
+
 export const app = new Elysia({
   serve: { maxRequestBodySize: 8 * 1024 * 1024 },
+  cookie: { httpOnly: true, secure: secureCookie, sameSite, path: "/" },
 })
+  .use(
+    cors({
+      origin: appOrigin,
+      credentials: true,
+      methods: ["GET", "HEAD", "POST", "PATCH", "DELETE", "OPTIONS"],
+      allowedHeaders: ["Content-Type"],
+    }),
+  )
   .onBeforeHandle(({ request, status }) => {
     if (!["GET", "HEAD", "OPTIONS"].includes(request.method)) {
       const origin = request.headers.get("origin");
-      const allowed = process.env.APP_ORIGIN ?? "http://localhost:5173";
+      const allowed = appOrigin;
       if (
         origin &&
         origin !== allowed &&
@@ -147,8 +164,8 @@ export const app = new Elysia({
       cookie.session!.set({
         value: token,
         httpOnly: true,
-        secure: process.env.COOKIE_SECURE === "true",
-        sameSite: "lax",
+        secure: secureCookie,
+        sameSite,
         path: "/",
         maxAge: 30 * 86400,
       });
@@ -415,4 +432,5 @@ export const app = new Elysia({
         avatar: text(7_000_000),
       }),
     },
-  );
+  )
+  .get("/", "Elysia is listening at port 11000");

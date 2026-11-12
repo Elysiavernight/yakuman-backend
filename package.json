@@ -11,6 +11,7 @@
     "db:migrate": "bun src/migrate.ts"
   },
   "dependencies": {
+    "@elysiajs/cors": "^1.4.3",
     "drizzle-orm": "^0.45.4",
     "elysia": "latest"
   },
