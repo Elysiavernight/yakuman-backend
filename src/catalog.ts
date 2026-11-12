@@ -36,7 +36,7 @@ export const yakumans: Yakuman[] = [
   },
   {
     id: "suuankou-tanki",
-    name: "Suuankou Yanki",
+    name: "Suuankou Tanki",
     english: "Four concealed triplets, single wait",
     japanese: "四暗刻単騎",
     multiplier: 2,
