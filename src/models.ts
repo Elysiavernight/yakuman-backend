@@ -19,5 +19,6 @@ export interface Post {
   gameLink: string;
   image: string;
   platform: string;
+  pinned: boolean;
   createdAt: string;
 }

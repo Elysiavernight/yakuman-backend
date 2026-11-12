@@ -37,6 +37,7 @@ export const records = sqliteTable(
     gameLink: text("gameLink").notNull().default(""),
     image: text("image").notNull().default(""),
     platform: text("platform").notNull().default("Other"),
+    pinned: integer("pinned", { mode: "boolean" }).notNull().default(false),
     createdAt: text("createdAt").notNull(),
   },
   (table) => [

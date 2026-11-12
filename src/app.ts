@@ -1,6 +1,6 @@
 import { Elysia, t } from "elysia";
 import { cors } from "@elysiajs/cors";
-import { and, eq, gt, lt, getTableColumns } from "drizzle-orm";
+import { and, count, eq, gt, lt, getTableColumns } from "drizzle-orm";
 import { db, posts, publicUser } from "./db";
 import { records, sessions, users } from "./schema";
 import { tileIds, yakumans } from "./catalog";
@@ -349,6 +349,50 @@ export const app = new Elysia({
         ),
       }),
     },
+  )
+  .patch(
+    "/api/posts/:id/pin",
+    ({ params, body, cookie, status }) => {
+      const user = current(cookie.session?.value);
+      if (!user)
+        return status(401, { error: "Please log in to pin a record." });
+
+      return db.transaction(
+        (tx) => {
+          const ownedPost = and(
+            eq(records.id, params.id),
+            eq(records.userId, user.id),
+          );
+          const existing = tx.select().from(records).where(ownedPost).get();
+          if (!existing)
+            return status(404, { error: "That record was not found." });
+
+          if (body.pinned && !existing.pinned) {
+            const pinned = tx
+              .select({ total: count() })
+              .from(records)
+              .where(and(eq(records.userId, user.id), eq(records.pinned, true)))
+              .get()!;
+            if (pinned.total >= 3) {
+              return status(409, {
+                error:
+                  "You can pin up to 3 posts. Unpin one before pinning another.",
+              });
+            }
+          }
+
+          const updated = tx
+            .update(records)
+            .set({ pinned: body.pinned })
+            .where(ownedPost)
+            .returning()
+            .get()!;
+          return { post: { ...updated, user } };
+        },
+        { behavior: "immediate" },
+      );
+    },
+    { body: t.Object({ pinned: t.Boolean() }) },
   )
   .delete("/api/posts/:id", ({ params, cookie, status }) => {
     const user = current(cookie.session?.value);

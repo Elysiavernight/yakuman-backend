@@ -15,6 +15,13 @@
       "when": 1794490019350,
       "tag": "0001_neat_lionheart",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1794498390995,
+      "tag": "0002_strange_ben_urich",
+      "breakpoints": true
     }
   ]
 }
