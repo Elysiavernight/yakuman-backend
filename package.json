@@ -1,15 +1,23 @@
 {
-  "name": "backend",
+  "name": "yakuman-soul-api",
   "version": "1.0.50",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "dev": "bun run --watch src/index.ts"
+    "test": "bun test src",
+    "typecheck": "tsc -p .",
+    "dev": "bun run --watch src/index.ts",
+    "start": "bun src/index.ts",
+    "seed": "bun src/seed.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "bun src/migrate.ts"
   },
   "dependencies": {
+    "drizzle-orm": "^0.45.4",
     "elysia": "latest"
   },
   "devDependencies": {
-    "bun-types": "latest"
+    "bun-types": "latest",
+    "drizzle-kit": "^0.31.11",
+    "typescript": "^5.9.3"
   },
-  "module": "src/index.js"
+  "module": "src/index.ts"
 }

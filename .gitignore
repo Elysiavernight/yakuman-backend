@@ -2,6 +2,13 @@
 
 # dependencies
 /node_modules
+/data/
+*.sqlite
+*.sqlite-*
+.env
+.env.*
+!.env.example
+!.env.production.example
 /.pnp
 .pnp.js
 
@@ -32,7 +39,8 @@ yarn-error.log*
 
 # vercel
 .vercel
-
+#test
+/test/
 **/*.trace
 **/*.zip
 **/*.tar.gz
