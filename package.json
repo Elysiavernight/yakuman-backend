@@ -8,12 +8,14 @@
     "start": "bun src/index.ts",
     "seed": "bun src/seed.ts",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "bun src/migrate.ts"
+    "db:migrate": "bun src/migrate.ts",
+    "images:migrate": "bun src/migrate-images.ts"
   },
   "dependencies": {
     "@elysiajs/cors": "^1.4.3",
     "drizzle-orm": "^0.45.4",
-    "elysia": "latest"
+    "elysia": "latest",
+    "sharp": "^0.35.5"
   },
   "devDependencies": {
     "bun-types": "latest",

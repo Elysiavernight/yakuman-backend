@@ -18,6 +18,7 @@ export interface Post {
   description: string;
   gameLink: string;
   image: string;
+  imageThumbnail?: string;
   platform: string;
   pinned: boolean;
   createdAt: string;

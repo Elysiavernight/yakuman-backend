@@ -1,9 +1,16 @@
 import { Elysia, t } from "elysia";
 import { cors } from "@elysiajs/cors";
-import { and, count, eq, gt, lt, getTableColumns } from "drizzle-orm";
-import { db, posts, publicUser } from "./db";
+import { and, count, eq, gt, lt } from "drizzle-orm";
+import { db, posts, publicUser, userColumns } from "./db";
 import { records, sessions, users } from "./schema";
 import { tileIds, yakumans } from "./catalog";
+import {
+  decodeImage,
+  imageThumbnail,
+  imageUrl,
+  ImageError,
+  resolveImage,
+} from "./images";
 
 const credentials = t.Object({
   username: t.String({
@@ -21,7 +28,7 @@ const digest = (s: string) =>
 function current(token: unknown) {
   if (typeof token !== "string") return null;
   const row = db
-    .select(getTableColumns(users))
+    .select(userColumns)
     .from(users)
     .innerJoin(sessions, eq(sessions.userId, users.id))
     .where(
@@ -37,16 +44,6 @@ function validLink(value: string) {
     return false;
   }
 }
-function validImage(value: string) {
-  if (!value) return true;
-  if (value.startsWith("data:image/"))
-    return (
-      /^data:image\/(png|jpeg|webp|gif);base64,[A-Za-z0-9+/=]+$/.test(value) &&
-      value.length <= 7_000_000
-    );
-  return false;
-}
-
 const appOrigin = process.env.APP_ORIGIN ?? "http://localhost:5173";
 const secureCookie = process.env.COOKIE_SECURE === "true";
 const sameSite = process.env.COOKIE_SAME_SITE === "none" ? "none" : "lax";
@@ -81,6 +78,8 @@ export const app = new Elysia({
     }
   })
   .onError(({ code, status, error }) => {
+    if (error instanceof ImageError)
+      return status(400, { error: error.message });
     if (code === "VALIDATION" || code === "PARSE")
       return status(400, {
         error:
@@ -92,6 +91,33 @@ export const app = new Elysia({
     return status(500, { error: "Something went wrong. Please try again." });
   })
   .get("/api/health", () => ({ ok: true }))
+  .get("/api/images/:kind/:id", ({ params, status, set }) => {
+    const value =
+      params.kind === "avatars"
+        ? db
+            .select({ value: users.avatar })
+            .from(users)
+            .where(eq(users.id, params.id))
+            .get()?.value
+        : params.kind === "screenshots"
+          ? db
+              .select({ value: records.image })
+              .from(records)
+              .where(eq(records.id, params.id))
+              .get()?.value
+          : undefined;
+    if (!value) return status(404, { error: "Image not found." });
+    if (value.startsWith("r2:"))
+      return Response.redirect(
+        imageUrl(value, params.kind as "avatars" | "screenshots", params.id),
+        302,
+      );
+    const { bytes, type } = decodeImage(value);
+    set.headers["Cache-Control"] = "public, max-age=300";
+    return new Response(bytes, {
+      headers: { "Content-Type": type, "Cache-Control": "public, max-age=300" },
+    });
+  })
   .get("/api/catalog", () => ({
     yakumans: yakumans.map(({ tiles, ...metadata }) => metadata),
     tileIds,
@@ -192,7 +218,7 @@ export const app = new Elysia({
   })
   .post(
     "/api/posts",
-    ({ body, cookie, status }) => {
+    async ({ body, cookie, status }) => {
       const user = current(cookie.session?.value);
       if (!user) return status(401, { error: "Log in to record a yakuman." });
       const types = [...new Set(body.types)];
@@ -215,11 +241,8 @@ export const app = new Elysia({
         return status(400, {
           error: "Use a complete http or https game link.",
         });
-      if (!validImage(body.image ?? ""))
-        return status(400, {
-          error: "Choose a PNG, JPEG, GIF or WebP image under 5 MB.",
-        });
       const id = crypto.randomUUID();
+      const image = await resolveImage(body.image, "", "screenshots", id);
       db.insert(records)
         .values({
           id,
@@ -228,12 +251,12 @@ export const app = new Elysia({
           hand,
           description: body.description?.trim() ?? "",
           gameLink: body.gameLink ?? "",
-          image: body.image ?? "",
+          image,
           platform: body.platform ?? "Other",
           createdAt: new Date().toISOString(),
         })
         .run();
-      return { post: posts().find((p) => p.id === id) };
+      return { post: posts(id)[0] };
     },
     {
       body: t.Object({
@@ -256,7 +279,7 @@ export const app = new Elysia({
   )
   .patch(
     "/api/posts/:id",
-    ({ params, body, cookie, status }) => {
+    async ({ params, body, cookie, status }) => {
       const user = current(cookie.session?.value);
 
       if (!user) {
@@ -310,11 +333,12 @@ export const app = new Elysia({
         });
       }
 
-      if (!validImage(values.image)) {
-        return status(400, {
-          error: "Choose a PNG, JPEG, GIF or WebP image under 5 MB.",
-        });
-      }
+      values.image = await resolveImage(
+        body.image,
+        existing.image,
+        "screenshots",
+        existing.id,
+      );
 
       const updated = db
         .update(records)
@@ -328,7 +352,7 @@ export const app = new Elysia({
       }
 
       return {
-        post: posts().find((post) => post.id === updated.id),
+        post: posts(updated.id)[0],
       };
     },
     {
@@ -387,7 +411,14 @@ export const app = new Elysia({
             .where(ownedPost)
             .returning()
             .get()!;
-          return { post: { ...updated, user } };
+          return {
+            post: {
+              ...updated,
+              image: imageUrl(updated.image, "screenshots", updated.id),
+              imageThumbnail: imageThumbnail(updated.image, updated.id),
+              user,
+            },
+          };
         },
         { behavior: "immediate" },
       );
@@ -406,14 +437,17 @@ export const app = new Elysia({
     return { ok: true };
   })
   .get("/api/stats", () => {
-    const all = posts();
+    const all = db
+      .select({ types: records.types, userId: records.userId })
+      .from(records)
+      .all();
     const types = yakumans
       .map((y) => ({
         id: y.id,
         count: all.filter((p) => p.types.includes(y.id)).length,
       }))
       .sort((a, b) => b.count - a.count);
-    const players = db.select().from(users).all();
+    const players = db.select(userColumns).from(users).all();
     const leaders = players
       .map((u) => ({
         user: publicUser(u),
@@ -438,28 +472,41 @@ export const app = new Elysia({
     };
   })
   .get("/api/users/:id", ({ params, status }) => {
-    const row = db.select().from(users).where(eq(users.id, params.id)).get();
+    const row = db
+      .select(userColumns)
+      .from(users)
+      .where(eq(users.id, params.id))
+      .get();
     return row
       ? { user: publicUser(row) }
       : status(404, { error: "That player could not be found." });
   })
   .patch(
     "/api/profile",
-    ({ body, cookie, status }) => {
+    async ({ body, cookie, status }) => {
       const user = current(cookie.session?.value);
       if (!user)
         return status(401, { error: "Please log in to edit your profile." });
       if (!body.name.trim())
         return status(400, { error: "Please enter a display name." });
-      if (!validImage(body.avatar ?? ""))
-        return status(400, { error: "Choose a profile image under 5 MB." });
+      const existing = db
+        .select({ avatar: users.avatar })
+        .from(users)
+        .where(eq(users.id, user.id))
+        .get()!;
+      const avatar = await resolveImage(
+        body.avatar,
+        existing.avatar,
+        "avatars",
+        user.id,
+      );
       const updated = db
         .update(users)
         .set({
           name: body.name.trim(),
           bio: body.bio ?? "",
           pronouns: body.pronouns?.trim() ?? user.pronouns,
-          avatar: body.avatar ?? "",
+          avatar,
         })
         .where(eq(users.id, user.id))
         .returning()
